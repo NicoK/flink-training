@@ -101,7 +101,7 @@ public class LongRidesSolution extends ExerciseBase {
 				rideState.update(ride);
 			}
 
-			timerService.registerEventTimeTimer(ride.getEventTime() + 120 * 60 * 1000);
+			timerService.registerEventTimeTimer(ride.startTime.getMillis() + 120 * 60 * 1000);
 		}
 
 		@Override
