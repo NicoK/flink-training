@@ -5,12 +5,5 @@ mainClassName = 'com.ververica.flink.training.exercises.ReadRidesAndFaresSnapsho
 
 // common set of dependencies
 dependencies {
-    // --------------------------------------------------------------
-    // Compile-time dependencies that should NOT be part of the
-    // shadow jar and are provided in the lib folder of Flink
-    // --------------------------------------------------------------
-    implementation "org.apache.flink:flink-state-processor-api_${scalaBinaryVersion}:${flinkVersion}"
-
-    flinkShadowJar "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
-    flinkShadowJar "com.fasterxml.jackson.core:jackson-annotations:${jacksonVersion}"
+    shadow "org.apache.flink:flink-state-processor-api_${scalaBinaryVersion}:${flinkVersion}"
 }
