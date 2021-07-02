@@ -24,36 +24,32 @@ import org.apache.flink.api.common.typeutils.TypeSerializerSnapshot;
 import org.apache.flink.core.memory.DataInputView;
 import org.apache.flink.core.memory.DataOutputView;
 
-/**
- * Serializer configuration snapshot for POJO and format evolution.
- */
-public final class AggregatedSensorStatisticsSerializerSnapshotV1 implements
-		TypeSerializerSnapshot<AggregatedSensorStatistics> {
-	@Override
-	public int getCurrentVersion() {
-		return 1;
-	}
+/** Serializer configuration snapshot for POJO and format evolution. */
+public final class AggregatedSensorStatisticsSerializerSnapshotV1
+        implements TypeSerializerSnapshot<AggregatedSensorStatistics> {
+    @Override
+    public int getCurrentVersion() {
+        return 1;
+    }
 
-	@Override
-	public TypeSerializerSchemaCompatibility<AggregatedSensorStatistics> resolveSchemaCompatibility(
-			TypeSerializer<AggregatedSensorStatistics> newSerializer) {
-		if (newSerializer instanceof AggregatedSensorStatisticsSerializerV1) {
-			return TypeSerializerSchemaCompatibility.compatibleAsIs();
-		} else {
-			return TypeSerializerSchemaCompatibility.incompatible();
-		}
-	}
+    @Override
+    public TypeSerializerSchemaCompatibility<AggregatedSensorStatistics> resolveSchemaCompatibility(
+            TypeSerializer<AggregatedSensorStatistics> newSerializer) {
+        if (newSerializer instanceof AggregatedSensorStatisticsSerializerV1) {
+            return TypeSerializerSchemaCompatibility.compatibleAsIs();
+        } else {
+            return TypeSerializerSchemaCompatibility.incompatible();
+        }
+    }
 
-	@Override
-	public TypeSerializer<AggregatedSensorStatistics> restoreSerializer() {
-		return new AggregatedSensorStatisticsSerializerV1();
-	}
+    @Override
+    public TypeSerializer<AggregatedSensorStatistics> restoreSerializer() {
+        return new AggregatedSensorStatisticsSerializerV1();
+    }
 
-	@Override
-	public void writeSnapshot(DataOutputView out) {
-	}
+    @Override
+    public void writeSnapshot(DataOutputView out) {}
 
-	@Override
-	public void readSnapshot(int readVersion, DataInputView in, ClassLoader userCodeClassLoader) {
-	}
+    @Override
+    public void readSnapshot(int readVersion, DataInputView in, ClassLoader userCodeClassLoader) {}
 }

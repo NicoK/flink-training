@@ -8,41 +8,39 @@ import java.lang.reflect.Type;
 import java.util.Map;
 
 /**
- * Immutable variant of {@link com.ververica.flink.training.provided.ExtendedMeasurement.MeasurementValue}.
+ * Immutable variant of {@link
+ * com.ververica.flink.training.provided.ExtendedMeasurement.MeasurementValue}.
  */
 @TypeInfo(MeasurementValue.MeasurementValueTypeInfoFactory.class)
 public class MeasurementValue {
-	private final double value;
-	private final float accuracy;
-	private final long timestamp;
+    private final double value;
+    private final float accuracy;
+    private final long timestamp;
 
-	/**
-	 * Constructor.
-	 */
-	public MeasurementValue(double value, float accuracy, long timestamp) {
-		this.value = value;
-		this.accuracy = accuracy;
-		this.timestamp = timestamp;
-	}
+    /** Constructor. */
+    public MeasurementValue(double value, float accuracy, long timestamp) {
+        this.value = value;
+        this.accuracy = accuracy;
+        this.timestamp = timestamp;
+    }
 
-	public double getValue() {
-		return value;
-	}
+    public double getValue() {
+        return value;
+    }
 
-	public float getAccuracy() {
-		return accuracy;
-	}
+    public float getAccuracy() {
+        return accuracy;
+    }
 
-	public long getTimestamp() {
-		return timestamp;
-	}
+    public long getTimestamp() {
+        return timestamp;
+    }
 
-	public static class MeasurementValueTypeInfoFactory extends TypeInfoFactory<MeasurementValue> {
-		@Override
-		public TypeInformation<MeasurementValue> createTypeInfo(
-				Type t,
-				Map<String, TypeInformation<?>> genericParameters) {
-			return MeasurementValueTypeInfo.INSTANCE;
-		}
-	}
+    public static class MeasurementValueTypeInfoFactory extends TypeInfoFactory<MeasurementValue> {
+        @Override
+        public TypeInformation<MeasurementValue> createTypeInfo(
+                Type t, Map<String, TypeInformation<?>> genericParameters) {
+            return MeasurementValueTypeInfo.INSTANCE;
+        }
+    }
 }

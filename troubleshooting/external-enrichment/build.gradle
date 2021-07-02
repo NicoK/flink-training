@@ -8,7 +8,7 @@ dependencies {
 
 sourceSets {
     main.java.srcDirs += 'src/provided/java'
-    tasks.withType(ScalaCompile) { 
+    tasks.withType(ScalaCompile) {
         main.scala.srcDirs += 'src/provided/scala'
     }
 }

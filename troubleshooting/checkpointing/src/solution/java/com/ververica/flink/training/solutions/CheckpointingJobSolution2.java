@@ -33,169 +33,178 @@ import static com.ververica.flink.training.common.EnvironmentUtils.createConfigu
 import static com.ververica.flink.training.common.EnvironmentUtils.isLocal;
 
 /**
- * Solution 2 for the streaming job with slow checkpointing
- * (Solution 1 does not need any code fixes; do you know what can be done there?).
+ * Solution 2 for the streaming job with slow checkpointing (Solution 1 does not need any code
+ * fixes; do you know what can be done there?).
  */
 public class CheckpointingJobSolution2 {
 
     /**
      * Creates and starts the troubled streaming job.
-	 *
-	 * @throws Exception if the application is misconfigured or fails during job submission
+     *
+     * @throws Exception if the application is misconfigured or fails during job submission
      */
-	public static void main(String[] args) throws Exception {
-		ParameterTool parameters = ParameterTool.fromArgs(args);
+    public static void main(String[] args) throws Exception {
+        ParameterTool parameters = ParameterTool.fromArgs(args);
 
-		StreamExecutionEnvironment env = createConfiguredEnvironment(parameters);
+        StreamExecutionEnvironment env = createConfiguredEnvironment(parameters);
 
-		//Timing Configuration
-		env.getConfig().setAutoWatermarkInterval(100);
-		env.setBufferTimeout(10);
+        // Timing Configuration
+        env.getConfig().setAutoWatermarkInterval(100);
+        env.setBufferTimeout(10);
 
-		//Checkpointing Configuration (use cluster-configs if not run locally)
-		if (isLocal(parameters)) {
-			env.enableCheckpointing(TimeUnit.SECONDS.toMillis(10));
-			env.getCheckpointConfig().setMinPauseBetweenCheckpoints(TimeUnit.SECONDS.toMillis(10));
-			env.getCheckpointConfig().setCheckpointTimeout(TimeUnit.MINUTES.toMillis(2));
-		}
+        // Checkpointing Configuration (use cluster-configs if not run locally)
+        if (isLocal(parameters)) {
+            env.enableCheckpointing(TimeUnit.SECONDS.toMillis(10));
+            env.getCheckpointConfig().setMinPauseBetweenCheckpoints(TimeUnit.SECONDS.toMillis(10));
+            env.getCheckpointConfig().setCheckpointTimeout(TimeUnit.MINUTES.toMillis(2));
+        }
 
-		DataStream<Tuple2<Measurement, Long>> sourceStream = env
-				.addSource(SourceUtils.createFailureFreeFakeKafkaSource())
-				.name("FakeKafkaSource")
-				.uid("FakeKafkaSource")
-				.assignTimestampsAndWatermarks(
-						WatermarkStrategy
-								.<FakeKafkaRecord>forBoundedOutOfOrderness(Duration.ofMillis(250))
-								.withTimestampAssigner(
-										(element, timestamp) -> element.getTimestamp())
-								.withIdleness(Duration.ofSeconds(1)))
-				.name("Watermarks")
-				.uid("Watermarks")
-				.flatMap(new MeasurementDeserializer())
-				.name("Deserialization")
-				.uid("Deserialization");
+        DataStream<Tuple2<Measurement, Long>> sourceStream =
+                env.addSource(SourceUtils.createFailureFreeFakeKafkaSource())
+                        .name("FakeKafkaSource")
+                        .uid("FakeKafkaSource")
+                        .assignTimestampsAndWatermarks(
+                                WatermarkStrategy.<FakeKafkaRecord>forBoundedOutOfOrderness(
+                                                Duration.ofMillis(250))
+                                        .withTimestampAssigner(
+                                                (element, timestamp) -> element.getTimestamp())
+                                        .withIdleness(Duration.ofSeconds(1)))
+                        .name("Watermarks")
+                        .uid("Watermarks")
+                        .flatMap(new MeasurementDeserializer())
+                        .name("Deserialization")
+                        .uid("Deserialization");
 
-		DataStream<WindowedMeasurements> aggregatedPerLocation = sourceStream
-				.keyBy(x -> x.f0.getSensorId())
-				.window(SlidingEventTimeWindows.of(Time.of(1, TimeUnit.MINUTES), Time.of(1, TimeUnit.SECONDS)))
-				.process(new MeasurementWindowProcessFunction())
-				.name("WindowedAggregationPerLocation")
-				.uid("WindowedAggregationPerLocation");
+        DataStream<WindowedMeasurements> aggregatedPerLocation =
+                sourceStream
+                        .keyBy(x -> x.f0.getSensorId())
+                        .window(
+                                SlidingEventTimeWindows.of(
+                                        Time.of(1, TimeUnit.MINUTES), Time.of(1, TimeUnit.SECONDS)))
+                        .process(new MeasurementWindowProcessFunction())
+                        .name("WindowedAggregationPerLocation")
+                        .uid("WindowedAggregationPerLocation");
 
-		if (isLocal(parameters)) {
-			aggregatedPerLocation.print()
-					.name("NormalOutput")
-					.uid("NormalOutput")
-					.disableChaining();
-		} else {
-			aggregatedPerLocation.addSink(new DiscardingSink<>())
-					.name("NormalOutput")
-					.uid("NormalOutput")
-					.disableChaining();
-		}
+        if (isLocal(parameters)) {
+            aggregatedPerLocation
+                    .print()
+                    .name("NormalOutput")
+                    .uid("NormalOutput")
+                    .disableChaining();
+        } else {
+            aggregatedPerLocation
+                    .addSink(new DiscardingSink<>())
+                    .name("NormalOutput")
+                    .uid("NormalOutput")
+                    .disableChaining();
+        }
 
-		env.execute(CheckpointingJobSolution2.class.getSimpleName());
-	}
+        env.execute(CheckpointingJobSolution2.class.getSimpleName());
+    }
 
-	/**
-	 * Deserializes the JSON Kafka message.
-	 */
-	public static class MeasurementDeserializer extends
-			RichFlatMapFunction<FakeKafkaRecord, Tuple2<Measurement, Long>> {
-		private static final long serialVersionUID = 3L;
+    /** Deserializes the JSON Kafka message. */
+    public static class MeasurementDeserializer
+            extends RichFlatMapFunction<FakeKafkaRecord, Tuple2<Measurement, Long>> {
+        private static final long serialVersionUID = 3L;
 
-		private Counter numInvalidRecords;
-		private transient ObjectMapper instance;
+        private Counter numInvalidRecords;
+        private transient ObjectMapper instance;
 
-		@Override
-		public void open(final Configuration parameters) throws Exception {
-			super.open(parameters);
-			numInvalidRecords = getRuntimeContext().getMetricGroup().counter("numInvalidRecords");
-			instance = createObjectMapper();
-		}
+        @Override
+        public void open(final Configuration parameters) throws Exception {
+            super.open(parameters);
+            numInvalidRecords = getRuntimeContext().getMetricGroup().counter("numInvalidRecords");
+            instance = createObjectMapper();
+        }
 
-		@Override
-		public void flatMap(final FakeKafkaRecord kafkaRecord, final Collector<Tuple2<Measurement, Long>> out) {
-			final Measurement node;
-			try {
-				node = deserialize(kafkaRecord.getValue());
-			} catch (IOException e) {
-				numInvalidRecords.inc();
-				return;
-			}
-			out.collect(Tuple2.of(node, kafkaRecord.getTimestamp()));
-		}
+        @Override
+        public void flatMap(
+                final FakeKafkaRecord kafkaRecord, final Collector<Tuple2<Measurement, Long>> out) {
+            final Measurement node;
+            try {
+                node = deserialize(kafkaRecord.getValue());
+            } catch (IOException e) {
+                numInvalidRecords.inc();
+                return;
+            }
+            out.collect(Tuple2.of(node, kafkaRecord.getTimestamp()));
+        }
 
-		private Measurement deserialize(final byte[] bytes) throws IOException {
-			return instance.readValue(bytes, Measurement.class);
-		}
-	}
+        private Measurement deserialize(final byte[] bytes) throws IOException {
+            return instance.readValue(bytes, Measurement.class);
+        }
+    }
 
-	private static class MeasurementByTimeComparator implements Comparator<Tuple2<Measurement, Long>> {
-		@Override
-		public int compare(Tuple2<Measurement, Long> o1, Tuple2<Measurement, Long> o2) {
-			return Long.compare(o1.f1, o2.f1);
-		}
-	}
+    private static class MeasurementByTimeComparator
+            implements Comparator<Tuple2<Measurement, Long>> {
+        @Override
+        public int compare(Tuple2<Measurement, Long> o1, Tuple2<Measurement, Long> o2) {
+            return Long.compare(o1.f1, o2.f1);
+        }
+    }
 
-	/**
-	 * Calculates data for retrieving the average temperature difference between two sensor readings
-	 * (in event-time order!).
-	 */
-	public static class MeasurementWindowProcessFunction
-			extends
-			ProcessWindowFunction<Tuple2<Measurement, Long>, WindowedMeasurements, Integer, TimeWindow> {
-		private static final long serialVersionUID = 1L;
+    /**
+     * Calculates data for retrieving the average temperature difference between two sensor readings
+     * (in event-time order!).
+     */
+    public static class MeasurementWindowProcessFunction
+            extends ProcessWindowFunction<
+                    Tuple2<Measurement, Long>, WindowedMeasurements, Integer, TimeWindow> {
+        private static final long serialVersionUID = 1L;
 
-		private static final int EVENT_TIME_LAG_WINDOW_SIZE = 10_000;
+        private static final int EVENT_TIME_LAG_WINDOW_SIZE = 10_000;
 
-		private transient DescriptiveStatisticsHistogram eventTimeLag;
+        private transient DescriptiveStatisticsHistogram eventTimeLag;
 
-		@Override
-		public void process(
-				final Integer sensorId,
-				final Context context,
-				final Iterable<Tuple2<Measurement, Long>> input,
-				final Collector<WindowedMeasurements> out) {
+        @Override
+        public void process(
+                final Integer sensorId,
+                final Context context,
+                final Iterable<Tuple2<Measurement, Long>> input,
+                final Collector<WindowedMeasurements> out) {
 
-			ArrayList<Tuple2<Measurement, Long>> list = new ArrayList<>();
-			input.iterator().forEachRemaining(list::add);
-			list.sort(new MeasurementByTimeComparator());
+            ArrayList<Tuple2<Measurement, Long>> list = new ArrayList<>();
+            input.iterator().forEachRemaining(list::add);
+            list.sort(new MeasurementByTimeComparator());
 
-			long eventsPerWindow = 0L;
-			double sumPerWindow = 0.0;
-			Measurement previous = null;
-			for (Tuple2<Measurement, Long> measurement : list) {
-				++eventsPerWindow;
-				if (previous != null) {
-					sumPerWindow += measurement.f0.getValue() - previous.getValue();
-				}
-				previous = measurement.f0;
-			}
+            long eventsPerWindow = 0L;
+            double sumPerWindow = 0.0;
+            Measurement previous = null;
+            for (Tuple2<Measurement, Long> measurement : list) {
+                ++eventsPerWindow;
+                if (previous != null) {
+                    sumPerWindow += measurement.f0.getValue() - previous.getValue();
+                }
+                previous = measurement.f0;
+            }
 
-			final TimeWindow window = context.window();
-			WindowedMeasurements result = new WindowedMeasurements();
-			result.setEventsPerWindow(eventsPerWindow);
-			result.setSumPerWindow(sumPerWindow);
-			result.setWindow(window);
-			result.setLocation(sensorId.toString());
+            final TimeWindow window = context.window();
+            WindowedMeasurements result = new WindowedMeasurements();
+            result.setEventsPerWindow(eventsPerWindow);
+            result.setSumPerWindow(sumPerWindow);
+            result.setWindow(window);
+            result.setLocation(sensorId.toString());
 
-			eventTimeLag.update(System.currentTimeMillis() - window.getEnd());
-			out.collect(result);
-		}
+            eventTimeLag.update(System.currentTimeMillis() - window.getEnd());
+            out.collect(result);
+        }
 
-		@Override
-		public void open(Configuration parameters) throws Exception {
-			super.open(parameters);
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
 
-			eventTimeLag = getRuntimeContext().getMetricGroup().histogram("eventTimeLag",
-					new DescriptiveStatisticsHistogram(EVENT_TIME_LAG_WINDOW_SIZE));
-		}
-	}
+            eventTimeLag =
+                    getRuntimeContext()
+                            .getMetricGroup()
+                            .histogram(
+                                    "eventTimeLag",
+                                    new DescriptiveStatisticsHistogram(EVENT_TIME_LAG_WINDOW_SIZE));
+        }
+    }
 
-	private static ObjectMapper createObjectMapper() {
-		ObjectMapper objectMapper = new ObjectMapper();
-		objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-		return objectMapper;
-	}
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return objectMapper;
+    }
 }

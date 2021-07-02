@@ -22,69 +22,69 @@ import java.time.Duration;
 
 @DoNotChangeThis
 public class StateMigrationJobBase {
-	public static final OutputTag<Measurement> LATE_DATA_TAG =
-			new OutputTag<Measurement>("late-data") {
-				private static final long serialVersionUID = 33513631677208956L;
-			};
+    public static final OutputTag<Measurement> LATE_DATA_TAG =
+            new OutputTag<Measurement>("late-data") {
+                private static final long serialVersionUID = 33513631677208956L;
+            };
 
-	protected static void createAndExecuteJob(
-			String[] args,
-			SensorAggregationProcessingBase keyedProcessFunction)
-			throws Exception {
-		ParameterTool parameters = ParameterTool.fromArgs(args);
+    protected static void createAndExecuteJob(
+            String[] args, SensorAggregationProcessingBase keyedProcessFunction) throws Exception {
+        ParameterTool parameters = ParameterTool.fromArgs(args);
 
-		StreamExecutionEnvironment env = EnvironmentUtils.createConfiguredEnvironment(parameters);
+        StreamExecutionEnvironment env = EnvironmentUtils.createConfiguredEnvironment(parameters);
 
-		//Checkpointing Configuration
-		env.enableCheckpointing(5000);
-		env.getCheckpointConfig().setMinPauseBetweenCheckpoints(4000);
+        // Checkpointing Configuration
+        env.enableCheckpointing(5000);
+        env.getCheckpointConfig().setMinPauseBetweenCheckpoints(4000);
 
-		DataStream<Measurement> sourceStream = env
-				.addSource(SourceUtils.createFailureFreeFakeKafkaSource()).name("FakeKafkaSource")
-				.assignTimestampsAndWatermarks(
-						WatermarkStrategy.<FakeKafkaRecord>forBoundedOutOfOrderness(
-								Duration.ofMillis(250))
-								.withTimestampAssigner(
-										(element, timestamp) -> element.getTimestamp())
-				)
-				.map(new MeasurementDeserializer())
-				.name("Deserialization");
+        DataStream<Measurement> sourceStream =
+                env.addSource(SourceUtils.createFailureFreeFakeKafkaSource())
+                        .name("FakeKafkaSource")
+                        .assignTimestampsAndWatermarks(
+                                WatermarkStrategy.<FakeKafkaRecord>forBoundedOutOfOrderness(
+                                                Duration.ofMillis(250))
+                                        .withTimestampAssigner(
+                                                (element, timestamp) -> element.getTimestamp()))
+                        .map(new MeasurementDeserializer())
+                        .name("Deserialization");
 
-		SingleOutputStreamOperator<MeasurementAggregationReport> aggregatedPerSensor = sourceStream
-				.keyBy(Measurement::getSensorId)
-				.process(keyedProcessFunction)
-				.name("AggregatePerSensor (" + keyedProcessFunction.getStateSerializerName() + ")")
-				.uid("AggregatePerSensor");
+        SingleOutputStreamOperator<MeasurementAggregationReport> aggregatedPerSensor =
+                sourceStream
+                        .keyBy(Measurement::getSensorId)
+                        .process(keyedProcessFunction)
+                        .name(
+                                "AggregatePerSensor ("
+                                        + keyedProcessFunction.getStateSerializerName()
+                                        + ")")
+                        .uid("AggregatePerSensor");
 
-		aggregatedPerSensor.addSink(new DiscardingSink<>()).name("NormalOutput")
-				.disableChaining();
-		aggregatedPerSensor.getSideOutput(LATE_DATA_TAG).addSink(new DiscardingSink<>())
-				.name("LateDataSink").disableChaining();
+        aggregatedPerSensor.addSink(new DiscardingSink<>()).name("NormalOutput").disableChaining();
+        aggregatedPerSensor
+                .getSideOutput(LATE_DATA_TAG)
+                .addSink(new DiscardingSink<>())
+                .name("LateDataSink")
+                .disableChaining();
 
-		env.execute();
-	}
+        env.execute();
+    }
 
-	/**
-	 * Deserializes the JSON Kafka message.
-	 */
-	public static class MeasurementDeserializer extends
-			RichMapFunction<FakeKafkaRecord, Measurement> {
-		private static final long serialVersionUID = 1L;
+    /** Deserializes the JSON Kafka message. */
+    public static class MeasurementDeserializer
+            extends RichMapFunction<FakeKafkaRecord, Measurement> {
+        private static final long serialVersionUID = 1L;
 
-		private transient ObjectMapper mapper;
+        private transient ObjectMapper mapper;
 
-		@Override
-		public void open(final Configuration parameters) throws Exception {
-			super.open(parameters);
-			mapper = new ObjectMapper();
-			mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-		}
+        @Override
+        public void open(final Configuration parameters) throws Exception {
+            super.open(parameters);
+            mapper = new ObjectMapper();
+            mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        }
 
-		@Override
-		public Measurement map(FakeKafkaRecord kafkaRecord) throws Exception {
-			return mapper.readValue(kafkaRecord.getValue(), Measurement.class);
-		}
-
-	}
-
+        @Override
+        public Measurement map(FakeKafkaRecord kafkaRecord) throws Exception {
+            return mapper.readValue(kafkaRecord.getValue(), Measurement.class);
+        }
+    }
 }

@@ -14,56 +14,53 @@ import java.util.Objects;
 @SuppressWarnings("WeakerAccess")
 @TypeInfo(Location.LocationTypeInfoFactory.class)
 public class Location {
-	private final double longitude;
-	private final double latitude;
-	private final double height;
+    private final double longitude;
+    private final double latitude;
+    private final double height;
 
-    /**
-     * Constructor.
-     */
-	public Location(double longitude, double latitude, double height) {
-		this.longitude = longitude;
-		this.latitude = latitude;
-		this.height = height;
-	}
+    /** Constructor. */
+    public Location(double longitude, double latitude, double height) {
+        this.longitude = longitude;
+        this.latitude = latitude;
+        this.height = height;
+    }
 
-	public double getLongitude() {
-		return longitude;
-	}
+    public double getLongitude() {
+        return longitude;
+    }
 
-	public double getLatitude() {
-		return latitude;
-	}
+    public double getLatitude() {
+        return latitude;
+    }
 
-	public double getHeight() {
-		return height;
-	}
+    public double getHeight() {
+        return height;
+    }
 
-	@Override
-	public boolean equals(Object o) {
-		if (this == o) {
-			return true;
-		}
-		if (o == null || getClass() != o.getClass()) {
-			return false;
-		}
-		Location location = (Location) o;
-		return Double.compare(location.longitude, longitude) == 0 &&
-				Double.compare(location.latitude, latitude) == 0 &&
-				Double.compare(location.height, height) == 0;
-	}
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) {
+            return true;
+        }
+        if (o == null || getClass() != o.getClass()) {
+            return false;
+        }
+        Location location = (Location) o;
+        return Double.compare(location.longitude, longitude) == 0
+                && Double.compare(location.latitude, latitude) == 0
+                && Double.compare(location.height, height) == 0;
+    }
 
-	@Override
-	public int hashCode() {
-		return Objects.hash(longitude, latitude, height);
-	}
+    @Override
+    public int hashCode() {
+        return Objects.hash(longitude, latitude, height);
+    }
 
-	public static class LocationTypeInfoFactory extends TypeInfoFactory<Location> {
-		@Override
-		public TypeInformation<Location> createTypeInfo(
-				Type t,
-				Map<String, TypeInformation<?>> genericParameters) {
-			return LocationTypeInfo.INSTANCE;
-		}
-	}
+    public static class LocationTypeInfoFactory extends TypeInfoFactory<Location> {
+        @Override
+        public TypeInformation<Location> createTypeInfo(
+                Type t, Map<String, TypeInformation<?>> genericParameters) {
+            return LocationTypeInfo.INSTANCE;
+        }
+    }
 }

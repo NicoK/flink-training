@@ -44,7 +44,7 @@ averaged over 1 second. The overall flow is depicted below:
                                                                                             \
                                                                                              \               +--------------------+
                                                                                               \              |                    |
-                                                                                               +-----------> | Sink: LateDataSink |    
+                                                                                               +-----------> | Sink: LateDataSink |
                                                                                                              |                    |
                                                                                                              +--------------------+
 ```

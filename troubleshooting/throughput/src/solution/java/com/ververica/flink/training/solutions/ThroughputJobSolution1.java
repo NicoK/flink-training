@@ -30,226 +30,227 @@ import java.time.Duration;
 import static com.ververica.flink.training.common.EnvironmentUtils.createConfiguredEnvironment;
 import static com.ververica.flink.training.common.EnvironmentUtils.isLocal;
 
-/**
- * Streaming job evolved by optimising throughput initializing {@link ObjectMapper} only once.
- */
+/** Streaming job evolved by optimising throughput initializing {@link ObjectMapper} only once. */
 public class ThroughputJobSolution1 {
 
     /**
      * Creates and starts the troubled streaming job.
-	 *
-	 * @throws Exception if the application is misconfigured or fails during job submission
+     *
+     * @throws Exception if the application is misconfigured or fails during job submission
      */
-	public static void main(String[] args) throws Exception {
-		ParameterTool parameters = ParameterTool.fromArgs(args);
+    public static void main(String[] args) throws Exception {
+        ParameterTool parameters = ParameterTool.fromArgs(args);
 
-		StreamExecutionEnvironment env = createConfiguredEnvironment(parameters);
+        StreamExecutionEnvironment env = createConfiguredEnvironment(parameters);
 
-		//Timing Configuration
-		env.getConfig().setAutoWatermarkInterval(100);
-		env.setBufferTimeout(10);
+        // Timing Configuration
+        env.getConfig().setAutoWatermarkInterval(100);
+        env.setBufferTimeout(10);
 
-		//Checkpointing Configuration
-		env.enableCheckpointing(5000);
-		env.getCheckpointConfig().setMinPauseBetweenCheckpoints(4000);
+        // Checkpointing Configuration
+        env.enableCheckpointing(5000);
+        env.getCheckpointConfig().setMinPauseBetweenCheckpoints(4000);
 
-		DataStream<JsonNode> sourceStream = env
-				.addSource(SourceUtils.createFakeKafkaSource())
-				.name("FakeKafkaSource")
-				.uid("FakeKafkaSource")
-				.assignTimestampsAndWatermarks(
-						WatermarkStrategy
-								.<FakeKafkaRecord>forBoundedOutOfOrderness(Duration.ofMillis(250))
-								.withTimestampAssigner(
-										(element, timestamp) -> element.getTimestamp())
-								.withIdleness(Duration.ofSeconds(1)))
-				.name("Watermarks")
-				.uid("Watermarks")
-				.flatMap(new MeasurementDeserializer())
-				.name("Deserialization")
-				.uid("Deserialization");
+        DataStream<JsonNode> sourceStream =
+                env.addSource(SourceUtils.createFakeKafkaSource())
+                        .name("FakeKafkaSource")
+                        .uid("FakeKafkaSource")
+                        .assignTimestampsAndWatermarks(
+                                WatermarkStrategy.<FakeKafkaRecord>forBoundedOutOfOrderness(
+                                                Duration.ofMillis(250))
+                                        .withTimestampAssigner(
+                                                (element, timestamp) -> element.getTimestamp())
+                                        .withIdleness(Duration.ofSeconds(1)))
+                        .name("Watermarks")
+                        .uid("Watermarks")
+                        .flatMap(new MeasurementDeserializer())
+                        .name("Deserialization")
+                        .uid("Deserialization");
 
-		DataStream<WindowedMeasurements> aggregatedPerLocation = sourceStream
-				.keyBy(jsonNode -> jsonNode.get("location").asText())
-				.window(TumblingEventTimeWindows.of(Time.seconds(1)))
-				.aggregate(new MeasurementWindowAggregatingPerLocation(),
-						new MeasurementWindowProcessFunction())
-				.name("WindowedAggregationPerLocation")
-				.uid("WindowedAggregationPerLocation");
+        DataStream<WindowedMeasurements> aggregatedPerLocation =
+                sourceStream
+                        .keyBy(jsonNode -> jsonNode.get("location").asText())
+                        .window(TumblingEventTimeWindows.of(Time.seconds(1)))
+                        .aggregate(
+                                new MeasurementWindowAggregatingPerLocation(),
+                                new MeasurementWindowProcessFunction())
+                        .name("WindowedAggregationPerLocation")
+                        .uid("WindowedAggregationPerLocation");
 
-		DataStream<WindowedMeasurementsForArea> aggregatedPerArea = aggregatedPerLocation
-				.keyBy(m -> WindowedMeasurementsForArea.getArea(m.getLocation()))
-				.window(TumblingEventTimeWindows.of(Time.seconds(1)))
-				.aggregate(new MeasurementWindowAggregatingPerArea());
+        DataStream<WindowedMeasurementsForArea> aggregatedPerArea =
+                aggregatedPerLocation
+                        .keyBy(m -> WindowedMeasurementsForArea.getArea(m.getLocation()))
+                        .window(TumblingEventTimeWindows.of(Time.seconds(1)))
+                        .aggregate(new MeasurementWindowAggregatingPerArea());
 
-		if (isLocal(parameters)) {
-			aggregatedPerLocation.addSink(new DiscardingSink<>())
-					.name("OutputPerLocation")
-					.uid("OutputPerLocation")
-					.disableChaining();
-			aggregatedPerArea.print()
-					.name("OutputPerArea")
-					.uid("OutputPerArea")
-					.disableChaining();
-		} else {
-			aggregatedPerLocation.addSink(new DiscardingSink<>())
-					.name("OutputPerLocation")
-					.uid("OutputPerLocation")
-					.disableChaining();
-			aggregatedPerArea.addSink(new DiscardingSink<>())
-					.name("OutputPerArea")
-					.uid("OutputPerArea")
-					.disableChaining();
-		}
+        if (isLocal(parameters)) {
+            aggregatedPerLocation
+                    .addSink(new DiscardingSink<>())
+                    .name("OutputPerLocation")
+                    .uid("OutputPerLocation")
+                    .disableChaining();
+            aggregatedPerArea.print().name("OutputPerArea").uid("OutputPerArea").disableChaining();
+        } else {
+            aggregatedPerLocation
+                    .addSink(new DiscardingSink<>())
+                    .name("OutputPerLocation")
+                    .uid("OutputPerLocation")
+                    .disableChaining();
+            aggregatedPerArea
+                    .addSink(new DiscardingSink<>())
+                    .name("OutputPerArea")
+                    .uid("OutputPerArea")
+                    .disableChaining();
+        }
 
-		env.execute(ThroughputJobSolution1.class.getSimpleName());
-	}
+        env.execute(ThroughputJobSolution1.class.getSimpleName());
+    }
 
-	/**
-	 * Deserializes the JSON Kafka message.
-	 */
-	public static class MeasurementDeserializer extends
-			RichFlatMapFunction<FakeKafkaRecord, JsonNode> {
-		private static final long serialVersionUID = 2L;
+    /** Deserializes the JSON Kafka message. */
+    public static class MeasurementDeserializer
+            extends RichFlatMapFunction<FakeKafkaRecord, JsonNode> {
+        private static final long serialVersionUID = 2L;
 
-		private Counter numInvalidRecords;
-		private transient ObjectMapper instance;
+        private Counter numInvalidRecords;
+        private transient ObjectMapper instance;
 
-		@Override
-		public void open(final Configuration parameters) throws Exception {
-			super.open(parameters);
-			numInvalidRecords = getRuntimeContext().getMetricGroup().counter("numInvalidRecords");
-			instance = createObjectMapper();
-		}
+        @Override
+        public void open(final Configuration parameters) throws Exception {
+            super.open(parameters);
+            numInvalidRecords = getRuntimeContext().getMetricGroup().counter("numInvalidRecords");
+            instance = createObjectMapper();
+        }
 
-		@Override
-		public void flatMap(final FakeKafkaRecord kafkaRecord, final Collector<JsonNode> out) {
-			final JsonNode node;
-			try {
-				node = deserialize(kafkaRecord.getValue());
-			} catch (IOException e) {
-				numInvalidRecords.inc();
-				return;
-			}
-			out.collect(node);
-		}
+        @Override
+        public void flatMap(final FakeKafkaRecord kafkaRecord, final Collector<JsonNode> out) {
+            final JsonNode node;
+            try {
+                node = deserialize(kafkaRecord.getValue());
+            } catch (IOException e) {
+                numInvalidRecords.inc();
+                return;
+            }
+            out.collect(node);
+        }
 
-		private JsonNode deserialize(final byte[] bytes) throws IOException {
-			return instance.readValue(bytes, JsonNode.class);
-		}
-	}
+        private JsonNode deserialize(final byte[] bytes) throws IOException {
+            return instance.readValue(bytes, JsonNode.class);
+        }
+    }
 
-	public static class MeasurementWindowProcessFunction
-			extends
-			ProcessWindowFunction<WindowedMeasurements, WindowedMeasurements, String, TimeWindow> {
-		private static final long serialVersionUID = 1L;
+    public static class MeasurementWindowProcessFunction
+            extends ProcessWindowFunction<
+                    WindowedMeasurements, WindowedMeasurements, String, TimeWindow> {
+        private static final long serialVersionUID = 1L;
 
-		private static final int EVENT_TIME_LAG_WINDOW_SIZE = 10_000;
+        private static final int EVENT_TIME_LAG_WINDOW_SIZE = 10_000;
 
-		private transient DescriptiveStatisticsHistogram eventTimeLag;
+        private transient DescriptiveStatisticsHistogram eventTimeLag;
 
-		@Override
-		public void process(
-				final String location,
-				final Context context,
-				final Iterable<WindowedMeasurements> input,
-				final Collector<WindowedMeasurements> out) {
+        @Override
+        public void process(
+                final String location,
+                final Context context,
+                final Iterable<WindowedMeasurements> input,
+                final Collector<WindowedMeasurements> out) {
 
-			// Windows with pre-aggregation only forward the final aggregate to the WindowFunction
-			WindowedMeasurements aggregate = input.iterator().next();
+            // Windows with pre-aggregation only forward the final aggregate to the WindowFunction
+            WindowedMeasurements aggregate = input.iterator().next();
 
-			final TimeWindow window = context.window();
-			aggregate.setWindow(window);
-			aggregate.setLocation(location);
+            final TimeWindow window = context.window();
+            aggregate.setWindow(window);
+            aggregate.setLocation(location);
 
-			eventTimeLag.update(System.currentTimeMillis() - window.getEnd());
-			out.collect(aggregate);
-		}
+            eventTimeLag.update(System.currentTimeMillis() - window.getEnd());
+            out.collect(aggregate);
+        }
 
-		@Override
-		public void open(Configuration parameters) throws Exception {
-			super.open(parameters);
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
 
-			eventTimeLag = getRuntimeContext().getMetricGroup().histogram("eventTimeLag",
-					new DescriptiveStatisticsHistogram(EVENT_TIME_LAG_WINDOW_SIZE));
-		}
-	}
+            eventTimeLag =
+                    getRuntimeContext()
+                            .getMetricGroup()
+                            .histogram(
+                                    "eventTimeLag",
+                                    new DescriptiveStatisticsHistogram(EVENT_TIME_LAG_WINDOW_SIZE));
+        }
+    }
 
-	public static class MeasurementWindowAggregatingPerLocation
-			implements
-			AggregateFunction<JsonNode, WindowedMeasurements, WindowedMeasurements> {
+    public static class MeasurementWindowAggregatingPerLocation
+            implements AggregateFunction<JsonNode, WindowedMeasurements, WindowedMeasurements> {
 
-		private static final long serialVersionUID = 1L;
+        private static final long serialVersionUID = 1L;
 
-		@Override
-		public WindowedMeasurements add(
-				final JsonNode record,
-				final WindowedMeasurements aggregate) {
-			double result = Double.parseDouble(record.get("value").asText());
-			aggregate.addMeasurement(result);
-			return aggregate;
-		}
+        @Override
+        public WindowedMeasurements add(
+                final JsonNode record, final WindowedMeasurements aggregate) {
+            double result = Double.parseDouble(record.get("value").asText());
+            aggregate.addMeasurement(result);
+            return aggregate;
+        }
 
-		@Override
-		public WindowedMeasurements createAccumulator() {
-			return new WindowedMeasurements();
-		}
+        @Override
+        public WindowedMeasurements createAccumulator() {
+            return new WindowedMeasurements();
+        }
 
-		@Override
-		public WindowedMeasurements getResult(final WindowedMeasurements windowedMeasurements) {
-			return windowedMeasurements;
-		}
+        @Override
+        public WindowedMeasurements getResult(final WindowedMeasurements windowedMeasurements) {
+            return windowedMeasurements;
+        }
 
-		@Override
-		public WindowedMeasurements merge(
-				final WindowedMeasurements agg1,
-				final WindowedMeasurements agg2) {
-			agg2.setEventsPerWindow(agg1.getEventsPerWindow() + agg2.getEventsPerWindow());
-			agg2.setSumPerWindow(agg1.getSumPerWindow() + agg2.getSumPerWindow());
-			return agg2;
-		}
-	}
+        @Override
+        public WindowedMeasurements merge(
+                final WindowedMeasurements agg1, final WindowedMeasurements agg2) {
+            agg2.setEventsPerWindow(agg1.getEventsPerWindow() + agg2.getEventsPerWindow());
+            agg2.setSumPerWindow(agg1.getSumPerWindow() + agg2.getSumPerWindow());
+            return agg2;
+        }
+    }
 
-	public static class MeasurementWindowAggregatingPerArea
-			implements
-			AggregateFunction<WindowedMeasurements, WindowedMeasurementsForArea, WindowedMeasurementsForArea> {
+    public static class MeasurementWindowAggregatingPerArea
+            implements AggregateFunction<
+                    WindowedMeasurements,
+                    WindowedMeasurementsForArea,
+                    WindowedMeasurementsForArea> {
 
-		private static final long serialVersionUID = 1L;
+        private static final long serialVersionUID = 1L;
 
-		@Override
-		public WindowedMeasurementsForArea add(
-				final WindowedMeasurements value,
-				final WindowedMeasurementsForArea aggregate) {
-			aggregate.addMeasurement(value);
-			return aggregate;
-		}
+        @Override
+        public WindowedMeasurementsForArea add(
+                final WindowedMeasurements value, final WindowedMeasurementsForArea aggregate) {
+            aggregate.addMeasurement(value);
+            return aggregate;
+        }
 
-		@Override
-		public WindowedMeasurementsForArea getResult(WindowedMeasurementsForArea windowedMeasurements) {
-			String aLocation = windowedMeasurements.getLocations().get(0);
-			windowedMeasurements.setArea(WindowedMeasurementsForArea.getArea(aLocation));
-			return windowedMeasurements;
-		}
+        @Override
+        public WindowedMeasurementsForArea getResult(
+                WindowedMeasurementsForArea windowedMeasurements) {
+            String aLocation = windowedMeasurements.getLocations().get(0);
+            windowedMeasurements.setArea(WindowedMeasurementsForArea.getArea(aLocation));
+            return windowedMeasurements;
+        }
 
-		@Override
-		public WindowedMeasurementsForArea createAccumulator() {
-			return new WindowedMeasurementsForArea();
-		}
+        @Override
+        public WindowedMeasurementsForArea createAccumulator() {
+            return new WindowedMeasurementsForArea();
+        }
 
-		@Override
-		public WindowedMeasurementsForArea merge(
-				final WindowedMeasurementsForArea agg1,
-				final WindowedMeasurementsForArea agg2) {
-			agg2.setEventsPerWindow(agg1.getEventsPerWindow() + agg2.getEventsPerWindow());
-			agg2.setSumPerWindow(agg1.getSumPerWindow() + agg2.getSumPerWindow());
-			agg2.addAllLocations(agg1.getLocations());
-			return agg2;
-		}
-	}
+        @Override
+        public WindowedMeasurementsForArea merge(
+                final WindowedMeasurementsForArea agg1, final WindowedMeasurementsForArea agg2) {
+            agg2.setEventsPerWindow(agg1.getEventsPerWindow() + agg2.getEventsPerWindow());
+            agg2.setSumPerWindow(agg1.getSumPerWindow() + agg2.getSumPerWindow());
+            agg2.addAllLocations(agg1.getLocations());
+            return agg2;
+        }
+    }
 
-	private static ObjectMapper createObjectMapper() {
-		ObjectMapper objectMapper = new ObjectMapper();
-		objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-		return objectMapper;
-	}
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return objectMapper;
+    }
 }

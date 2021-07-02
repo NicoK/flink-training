@@ -33,206 +33,218 @@ import java.util.concurrent.TimeUnit;
 import static com.ververica.flink.training.common.EnvironmentUtils.createConfiguredEnvironment;
 import static com.ververica.flink.training.common.EnvironmentUtils.isLocal;
 
-/**
- * Streaming job that isn't performing as expected. Checkpointing is slow.
- */
+/** Streaming job that isn't performing as expected. Checkpointing is slow. */
 public class CheckpointingJob {
 
     /**
      * Creates and starts the troubled streaming job.
-	 *
-	 * @throws Exception if the application is misconfigured or fails during job submission
+     *
+     * @throws Exception if the application is misconfigured or fails during job submission
      */
-	public static void main(String[] args) throws Exception {
-		ParameterTool parameters = ParameterTool.fromArgs(args);
+    public static void main(String[] args) throws Exception {
+        ParameterTool parameters = ParameterTool.fromArgs(args);
 
-		StreamExecutionEnvironment env = createConfiguredEnvironment(parameters);
+        StreamExecutionEnvironment env = createConfiguredEnvironment(parameters);
 
-		//Timing Configuration
-		env.getConfig().setAutoWatermarkInterval(100);
-		env.setBufferTimeout(10);
+        // Timing Configuration
+        env.getConfig().setAutoWatermarkInterval(100);
+        env.setBufferTimeout(10);
 
-		//Checkpointing Configuration (use cluster-configs if not run locally)
-		if (isLocal(parameters)) {
-			env.enableCheckpointing(TimeUnit.SECONDS.toMillis(10));
-			env.getCheckpointConfig().setMinPauseBetweenCheckpoints(TimeUnit.SECONDS.toMillis(10));
-			env.getCheckpointConfig().setCheckpointTimeout(TimeUnit.MINUTES.toMillis(2));
-		}
+        // Checkpointing Configuration (use cluster-configs if not run locally)
+        if (isLocal(parameters)) {
+            env.enableCheckpointing(TimeUnit.SECONDS.toMillis(10));
+            env.getCheckpointConfig().setMinPauseBetweenCheckpoints(TimeUnit.SECONDS.toMillis(10));
+            env.getCheckpointConfig().setCheckpointTimeout(TimeUnit.MINUTES.toMillis(2));
+        }
 
-		DataStream<Tuple2<Measurement, Long>> sourceStream = env
-				.addSource(SourceUtils.createFailureFreeFakeKafkaSource())
-				.name("FakeKafkaSource")
-				.uid("FakeKafkaSource")
-				.assignTimestampsAndWatermarks(
-						WatermarkStrategy
-								.<FakeKafkaRecord>forBoundedOutOfOrderness(Duration.ofMillis(250))
-								.withTimestampAssigner(
-										(element, timestamp) -> element.getTimestamp())
-								.withIdleness(Duration.ofSeconds(1)))
-				.name("Watermarks")
-				.uid("Watermarks")
-				.flatMap(new MeasurementDeserializer())
-				.name("Deserialization")
-				.uid("Deserialization");
+        DataStream<Tuple2<Measurement, Long>> sourceStream =
+                env.addSource(SourceUtils.createFailureFreeFakeKafkaSource())
+                        .name("FakeKafkaSource")
+                        .uid("FakeKafkaSource")
+                        .assignTimestampsAndWatermarks(
+                                WatermarkStrategy.<FakeKafkaRecord>forBoundedOutOfOrderness(
+                                                Duration.ofMillis(250))
+                                        .withTimestampAssigner(
+                                                (element, timestamp) -> element.getTimestamp())
+                                        .withIdleness(Duration.ofSeconds(1)))
+                        .name("Watermarks")
+                        .uid("Watermarks")
+                        .flatMap(new MeasurementDeserializer())
+                        .name("Deserialization")
+                        .uid("Deserialization");
 
-		DataStream<WindowedMeasurements> aggregatedPerLocation = sourceStream
-				.keyBy(x -> x.f0.getSensorId())
-				.window(SlidingEventTimeWindows.of(Time.of(1, TimeUnit.MINUTES), Time.of(1, TimeUnit.SECONDS)))
-				.aggregate(new MeasurementWindowAggregatingFunction(),
-						new MeasurementWindowProcessFunction())
-				.name("WindowedAggregationPerLocation")
-				.uid("WindowedAggregationPerLocation");
+        DataStream<WindowedMeasurements> aggregatedPerLocation =
+                sourceStream
+                        .keyBy(x -> x.f0.getSensorId())
+                        .window(
+                                SlidingEventTimeWindows.of(
+                                        Time.of(1, TimeUnit.MINUTES), Time.of(1, TimeUnit.SECONDS)))
+                        .aggregate(
+                                new MeasurementWindowAggregatingFunction(),
+                                new MeasurementWindowProcessFunction())
+                        .name("WindowedAggregationPerLocation")
+                        .uid("WindowedAggregationPerLocation");
 
-		if (isLocal(parameters)) {
-			aggregatedPerLocation.print()
-					.name("NormalOutput")
-					.uid("NormalOutput")
-					.disableChaining();
-		} else {
-			aggregatedPerLocation.addSink(new DiscardingSink<>())
-					.name("NormalOutput")
-					.uid("NormalOutput")
-					.disableChaining();
-		}
+        if (isLocal(parameters)) {
+            aggregatedPerLocation
+                    .print()
+                    .name("NormalOutput")
+                    .uid("NormalOutput")
+                    .disableChaining();
+        } else {
+            aggregatedPerLocation
+                    .addSink(new DiscardingSink<>())
+                    .name("NormalOutput")
+                    .uid("NormalOutput")
+                    .disableChaining();
+        }
 
-		env.execute(CheckpointingJob.class.getSimpleName());
-	}
+        env.execute(CheckpointingJob.class.getSimpleName());
+    }
 
-	/**
-	 * Deserializes the JSON Kafka message.
-	 */
-	public static class MeasurementDeserializer extends
-			RichFlatMapFunction<FakeKafkaRecord, Tuple2<Measurement, Long>> {
-		private static final long serialVersionUID = 3L;
+    /** Deserializes the JSON Kafka message. */
+    public static class MeasurementDeserializer
+            extends RichFlatMapFunction<FakeKafkaRecord, Tuple2<Measurement, Long>> {
+        private static final long serialVersionUID = 3L;
 
-		private Counter numInvalidRecords;
-		private transient ObjectMapper instance;
+        private Counter numInvalidRecords;
+        private transient ObjectMapper instance;
 
-		@Override
-		public void open(final Configuration parameters) throws Exception {
-			super.open(parameters);
-			numInvalidRecords = getRuntimeContext().getMetricGroup().counter("numInvalidRecords");
-			instance = createObjectMapper();
-		}
+        @Override
+        public void open(final Configuration parameters) throws Exception {
+            super.open(parameters);
+            numInvalidRecords = getRuntimeContext().getMetricGroup().counter("numInvalidRecords");
+            instance = createObjectMapper();
+        }
 
-		@Override
-		public void flatMap(final FakeKafkaRecord kafkaRecord, final Collector<Tuple2<Measurement, Long>> out) {
-			final Measurement node;
-			try {
-				node = deserialize(kafkaRecord.getValue());
-			} catch (IOException e) {
-				numInvalidRecords.inc();
-				return;
-			}
-			out.collect(Tuple2.of(node, kafkaRecord.getTimestamp()));
-		}
+        @Override
+        public void flatMap(
+                final FakeKafkaRecord kafkaRecord, final Collector<Tuple2<Measurement, Long>> out) {
+            final Measurement node;
+            try {
+                node = deserialize(kafkaRecord.getValue());
+            } catch (IOException e) {
+                numInvalidRecords.inc();
+                return;
+            }
+            out.collect(Tuple2.of(node, kafkaRecord.getTimestamp()));
+        }
 
-		private Measurement deserialize(final byte[] bytes) throws IOException {
-			return instance.readValue(bytes, Measurement.class);
-		}
-	}
+        private Measurement deserialize(final byte[] bytes) throws IOException {
+            return instance.readValue(bytes, Measurement.class);
+        }
+    }
 
-	private static class MeasurementByTimeComparator implements Comparator<Tuple2<Measurement, Long>> {
-		@Override
-		public int compare(Tuple2<Measurement, Long> o1, Tuple2<Measurement, Long> o2) {
-			return Long.compare(o1.f1, o2.f1);
-		}
-	}
+    private static class MeasurementByTimeComparator
+            implements Comparator<Tuple2<Measurement, Long>> {
+        @Override
+        public int compare(Tuple2<Measurement, Long> o1, Tuple2<Measurement, Long> o2) {
+            return Long.compare(o1.f1, o2.f1);
+        }
+    }
 
-	/**
-	 * Calculates data for retrieving the average temperature difference between two sensor readings
-	 * (in event-time order!).
-	 */
-	public static class MeasurementWindowAggregatingFunction
-			implements
-			AggregateFunction<Tuple2<Measurement, Long>, PriorityQueue<Tuple2<Measurement, Long>>, WindowedMeasurements> {
-		private static final long serialVersionUID = 1;
+    /**
+     * Calculates data for retrieving the average temperature difference between two sensor readings
+     * (in event-time order!).
+     */
+    public static class MeasurementWindowAggregatingFunction
+            implements AggregateFunction<
+                    Tuple2<Measurement, Long>,
+                    PriorityQueue<Tuple2<Measurement, Long>>,
+                    WindowedMeasurements> {
+        private static final long serialVersionUID = 1;
 
-		@Override
-		public PriorityQueue<Tuple2<Measurement, Long>> createAccumulator() {
-			// note: "Comparator.comparingLong(o -> o.f1)" cannot be used with Kryo
-			return new PriorityQueue<>(new MeasurementByTimeComparator());
-		}
+        @Override
+        public PriorityQueue<Tuple2<Measurement, Long>> createAccumulator() {
+            // note: "Comparator.comparingLong(o -> o.f1)" cannot be used with Kryo
+            return new PriorityQueue<>(new MeasurementByTimeComparator());
+        }
 
-		@Override
-		public PriorityQueue<Tuple2<Measurement, Long>> add(
-				final Tuple2<Measurement, Long> record,
-				final PriorityQueue<Tuple2<Measurement, Long>> aggregate) {
-			aggregate.add(record);
-//			System.out.println("Elements for " + record.f0.getSensorId() + ": " + aggregate.size());
-			return aggregate;
-		}
+        @Override
+        public PriorityQueue<Tuple2<Measurement, Long>> add(
+                final Tuple2<Measurement, Long> record,
+                final PriorityQueue<Tuple2<Measurement, Long>> aggregate) {
+            aggregate.add(record);
+            //			System.out.println("Elements for " + record.f0.getSensorId() + ": " +
+            // aggregate.size());
+            return aggregate;
+        }
 
-		@Override
-		public WindowedMeasurements getResult(final PriorityQueue<Tuple2<Measurement, Long>> windowedMeasurements) {
-			long eventsPerWindow = 0L;
-			double sumPerWindow = 0.0;
+        @Override
+        public WindowedMeasurements getResult(
+                final PriorityQueue<Tuple2<Measurement, Long>> windowedMeasurements) {
+            long eventsPerWindow = 0L;
+            double sumPerWindow = 0.0;
 
-			Measurement previous = null;
-			while (!windowedMeasurements.isEmpty()) {
-				Tuple2<Measurement, Long> measurement = windowedMeasurements.poll();
-				++eventsPerWindow;
-				if (previous != null) {
-					sumPerWindow += measurement.f0.getValue() - previous.getValue();
-				}
-				previous = measurement.f0;
-			}
+            Measurement previous = null;
+            while (!windowedMeasurements.isEmpty()) {
+                Tuple2<Measurement, Long> measurement = windowedMeasurements.poll();
+                ++eventsPerWindow;
+                if (previous != null) {
+                    sumPerWindow += measurement.f0.getValue() - previous.getValue();
+                }
+                previous = measurement.f0;
+            }
 
-			WindowedMeasurements result = new WindowedMeasurements();
-			result.setEventsPerWindow(eventsPerWindow);
-			result.setSumPerWindow(sumPerWindow);
+            WindowedMeasurements result = new WindowedMeasurements();
+            result.setEventsPerWindow(eventsPerWindow);
+            result.setSumPerWindow(sumPerWindow);
 
-			return result;
-		}
+            return result;
+        }
 
-		@Override
-		public PriorityQueue<Tuple2<Measurement, Long>> merge(
-				final PriorityQueue<Tuple2<Measurement, Long>> agg1,
-				final PriorityQueue<Tuple2<Measurement, Long>> agg2) {
-			agg1.addAll(agg2);
-			return agg1;
-		}
-	}
+        @Override
+        public PriorityQueue<Tuple2<Measurement, Long>> merge(
+                final PriorityQueue<Tuple2<Measurement, Long>> agg1,
+                final PriorityQueue<Tuple2<Measurement, Long>> agg2) {
+            agg1.addAll(agg2);
+            return agg1;
+        }
+    }
 
-	public static class MeasurementWindowProcessFunction
-			extends
-			ProcessWindowFunction<WindowedMeasurements, WindowedMeasurements, Integer, TimeWindow> {
-		private static final long serialVersionUID = 1L;
+    public static class MeasurementWindowProcessFunction
+            extends ProcessWindowFunction<
+                    WindowedMeasurements, WindowedMeasurements, Integer, TimeWindow> {
+        private static final long serialVersionUID = 1L;
 
-		private static final int EVENT_TIME_LAG_WINDOW_SIZE = 10_000;
+        private static final int EVENT_TIME_LAG_WINDOW_SIZE = 10_000;
 
-		private transient DescriptiveStatisticsHistogram eventTimeLag;
+        private transient DescriptiveStatisticsHistogram eventTimeLag;
 
-		@Override
-		public void process(
-				final Integer sensorId,
-				final Context context,
-				final Iterable<WindowedMeasurements> input,
-				final Collector<WindowedMeasurements> out) {
+        @Override
+        public void process(
+                final Integer sensorId,
+                final Context context,
+                final Iterable<WindowedMeasurements> input,
+                final Collector<WindowedMeasurements> out) {
 
-			// Windows with pre-aggregation only forward the final result to the WindowFunction
-			WindowedMeasurements aggregate = input.iterator().next();
+            // Windows with pre-aggregation only forward the final result to the WindowFunction
+            WindowedMeasurements aggregate = input.iterator().next();
 
-			final TimeWindow window = context.window();
-			aggregate.setWindow(window);
-			aggregate.setLocation(sensorId.toString());
+            final TimeWindow window = context.window();
+            aggregate.setWindow(window);
+            aggregate.setLocation(sensorId.toString());
 
-			eventTimeLag.update(System.currentTimeMillis() - window.getEnd());
-			out.collect(aggregate);
-		}
+            eventTimeLag.update(System.currentTimeMillis() - window.getEnd());
+            out.collect(aggregate);
+        }
 
-		@Override
-		public void open(Configuration parameters) throws Exception {
-			super.open(parameters);
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
 
-			eventTimeLag = getRuntimeContext().getMetricGroup().histogram("eventTimeLag",
-					new DescriptiveStatisticsHistogram(EVENT_TIME_LAG_WINDOW_SIZE));
-		}
-	}
+            eventTimeLag =
+                    getRuntimeContext()
+                            .getMetricGroup()
+                            .histogram(
+                                    "eventTimeLag",
+                                    new DescriptiveStatisticsHistogram(EVENT_TIME_LAG_WINDOW_SIZE));
+        }
+    }
 
-	private static ObjectMapper createObjectMapper() {
-		ObjectMapper objectMapper = new ObjectMapper();
-		objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-		return objectMapper;
-	}
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return objectMapper;
+    }
 }

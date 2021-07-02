@@ -22,12 +22,10 @@ import org.apache.flink.streaming.api.functions.KeyedProcessFunction;
 
 import com.ververica.flink.training.common.Measurement;
 
-public abstract class SensorAggregationProcessingBase extends
-		KeyedProcessFunction<Integer, Measurement, MeasurementAggregationReport> {
-	private static final long serialVersionUID = 5841581588188443035L;
+public abstract class SensorAggregationProcessingBase
+        extends KeyedProcessFunction<Integer, Measurement, MeasurementAggregationReport> {
+    private static final long serialVersionUID = 5841581588188443035L;
 
-	/**
-	 * Gets the name of the state serializer that is being used.
-	 */
-	public abstract String getStateSerializerName();
+    /** Gets the name of the state serializer that is being used. */
+    public abstract String getStateSerializerName();
 }

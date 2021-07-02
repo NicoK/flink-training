@@ -16,8 +16,8 @@ import org.apache.flink.training.exercises.common.datatypes.TaxiRide;
 import org.apache.flink.util.Collector;
 
 /**
- * Java implementation for an example using the State Processor API to read and display
- * the contents of a retained checkpoint or savepoint from RidesAndFaresSolution.
+ * Java implementation for an example using the State Processor API to read and display the contents
+ * of a retained checkpoint or savepoint from RidesAndFaresSolution.
  *
  * <p>Required parameter:
  *
@@ -27,45 +27,49 @@ import org.apache.flink.util.Collector;
  */
 public class ReadRidesAndFaresSnapshot {
 
-	/**
-	 * Main method.
-	 *
-	 * @throws Exception which occurs during job execution.
-	 */
-	public static void main(String[] args) throws Exception {
-		ExecutionEnvironment bEnv = ExecutionEnvironment.getExecutionEnvironment();
-		HashMapStateBackend backend = new HashMapStateBackend();
+    /**
+     * Main method.
+     *
+     * @throws Exception which occurs during job execution.
+     */
+    public static void main(String[] args) throws Exception {
+        ExecutionEnvironment bEnv = ExecutionEnvironment.getExecutionEnvironment();
+        HashMapStateBackend backend = new HashMapStateBackend();
 
-		ParameterTool params = ParameterTool.fromArgs(args);
-		String input = params.getRequired("input");
+        ParameterTool params = ParameterTool.fromArgs(args);
+        String input = params.getRequired("input");
 
-		ExistingSavepoint sp = Savepoint.load(bEnv, input, backend);
+        ExistingSavepoint sp = Savepoint.load(bEnv, input, backend);
 
-		// the uid here must match the uid used in RidesAndFaresSolution
-		DataSet<Tuple2<TaxiRide, TaxiFare>> keyedState = sp.readKeyedState("enrichment", new ReadRidesAndFares());
+        // the uid here must match the uid used in RidesAndFaresSolution
+        DataSet<Tuple2<TaxiRide, TaxiFare>> keyedState =
+                sp.readKeyedState("enrichment", new ReadRidesAndFares());
 
-		keyedState.print();
-	}
+        keyedState.print();
+    }
 
-	static class ReadRidesAndFares extends KeyedStateReaderFunction<Long, Tuple2<TaxiRide, TaxiFare>> {
-		ValueState<TaxiRide> ride;
-		ValueState<TaxiFare> fare;
+    static class ReadRidesAndFares
+            extends KeyedStateReaderFunction<Long, Tuple2<TaxiRide, TaxiFare>> {
+        ValueState<TaxiRide> ride;
+        ValueState<TaxiFare> fare;
 
-		@Override
-		public void open(Configuration parameters) {
+        @Override
+        public void open(Configuration parameters) {
 
-			// these state descriptors must be compatible with those used in RidesAndFaresSolution
-			ride = getRuntimeContext().getState(new ValueStateDescriptor<>("saved ride", TaxiRide.class));
-			fare = getRuntimeContext().getState(new ValueStateDescriptor<>("saved fare", TaxiFare.class));
-		}
+            // these state descriptors must be compatible with those used in RidesAndFaresSolution
+            ride =
+                    getRuntimeContext()
+                            .getState(new ValueStateDescriptor<>("saved ride", TaxiRide.class));
+            fare =
+                    getRuntimeContext()
+                            .getState(new ValueStateDescriptor<>("saved fare", TaxiFare.class));
+        }
 
-		@Override
-		public void readKey(
-				Long key,
-				Context context,
-				Collector<Tuple2<TaxiRide, TaxiFare>> out) throws Exception {
+        @Override
+        public void readKey(Long key, Context context, Collector<Tuple2<TaxiRide, TaxiFare>> out)
+                throws Exception {
 
-			out.collect(new Tuple2<>(ride.value(), fare.value()));
-		}
-	}
+            out.collect(new Tuple2<>(ride.value(), fare.value()));
+        }
+    }
 }

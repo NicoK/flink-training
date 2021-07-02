@@ -38,183 +38,191 @@ public class TroubledStreamingJobSolution43 {
 
     /**
      * Creates and starts the troubled streaming job.
-	 *
-	 * @throws Exception if the application is misconfigured or fails during job submission
+     *
+     * @throws Exception if the application is misconfigured or fails during job submission
      */
-	public static void main(String[] args) throws Exception {
-		ParameterTool parameters = ParameterTool.fromArgs(args);
+    public static void main(String[] args) throws Exception {
+        ParameterTool parameters = ParameterTool.fromArgs(args);
 
-		StreamExecutionEnvironment env = createConfiguredEnvironment(parameters);
+        StreamExecutionEnvironment env = createConfiguredEnvironment(parameters);
 
-		//Timing Configuration
-		env.getConfig().setAutoWatermarkInterval(100);
-		env.setBufferTimeout(10);
+        // Timing Configuration
+        env.getConfig().setAutoWatermarkInterval(100);
+        env.setBufferTimeout(10);
 
-		//Checkpointing Configuration
-		env.enableCheckpointing(5000);
-		env.getCheckpointConfig().setMinPauseBetweenCheckpoints(4000);
+        // Checkpointing Configuration
+        env.enableCheckpointing(5000);
+        env.getCheckpointConfig().setMinPauseBetweenCheckpoints(4000);
 
-		DataStream<SimpleMeasurement> sourceStream = env
-				.addSource(SourceUtils.createFakeKafkaSource())
-				.name("FakeKafkaSource")
-				.uid("FakeKafkaSource")
-				.assignTimestampsAndWatermarks(
-						WatermarkStrategy
-								.<FakeKafkaRecord>forBoundedOutOfOrderness(Duration.ofMillis(250))
-								.withTimestampAssigner(
-										(element, timestamp) -> element.getTimestamp())
-								.withIdleness(Duration.ofSeconds(1)))
-				.name("Watermarks")
-				.uid("Watermarks")
-				.flatMap(new MeasurementDeserializer())
-				.name("Deserialization")
-				.uid("Deserialization");
+        DataStream<SimpleMeasurement> sourceStream =
+                env.addSource(SourceUtils.createFakeKafkaSource())
+                        .name("FakeKafkaSource")
+                        .uid("FakeKafkaSource")
+                        .assignTimestampsAndWatermarks(
+                                WatermarkStrategy.<FakeKafkaRecord>forBoundedOutOfOrderness(
+                                                Duration.ofMillis(250))
+                                        .withTimestampAssigner(
+                                                (element, timestamp) -> element.getTimestamp())
+                                        .withIdleness(Duration.ofSeconds(1)))
+                        .name("Watermarks")
+                        .uid("Watermarks")
+                        .flatMap(new MeasurementDeserializer())
+                        .name("Deserialization")
+                        .uid("Deserialization");
 
-		OutputTag<SimpleMeasurement> lateDataTag = new OutputTag<SimpleMeasurement>("late-data") {
-			private static final long serialVersionUID = 33513631677208956L;
-		};
+        OutputTag<SimpleMeasurement> lateDataTag =
+                new OutputTag<SimpleMeasurement>("late-data") {
+                    private static final long serialVersionUID = 33513631677208956L;
+                };
 
-		SingleOutputStreamOperator<WindowedMeasurements> aggregatedPerLocation = sourceStream
-				.keyBy(SimpleMeasurement::getLocation)
-				.window(TumblingEventTimeWindows.of(Time.seconds(1)))
-				.sideOutputLateData(lateDataTag)
-				.aggregate(new MeasurementWindowAggregatingFunction(),
-						new MeasurementWindowProcessFunction())
-				.name("WindowedAggregationPerLocation")
-				.uid("WindowedAggregationPerLocation");
+        SingleOutputStreamOperator<WindowedMeasurements> aggregatedPerLocation =
+                sourceStream
+                        .keyBy(SimpleMeasurement::getLocation)
+                        .window(TumblingEventTimeWindows.of(Time.seconds(1)))
+                        .sideOutputLateData(lateDataTag)
+                        .aggregate(
+                                new MeasurementWindowAggregatingFunction(),
+                                new MeasurementWindowProcessFunction())
+                        .name("WindowedAggregationPerLocation")
+                        .uid("WindowedAggregationPerLocation");
 
-		if (isLocal(parameters)) {
-			aggregatedPerLocation.print()
-					.name("NormalOutput")
-					.uid("NormalOutput")
-					.disableChaining();
-			aggregatedPerLocation.getSideOutput(lateDataTag).printToErr()
-					.name("LateDataSink")
-					.uid("LateDataSink")
-					.disableChaining();
-		} else {
-			aggregatedPerLocation.addSink(new DiscardingSink<>())
-					.name("NormalOutput")
-					.uid("NormalOutput")
-					.disableChaining();
-			aggregatedPerLocation.getSideOutput(lateDataTag).addSink(new DiscardingSink<>())
-					.name("LateDataSink")
-					.uid("LateDataSink")
-					.disableChaining();
-		}
+        if (isLocal(parameters)) {
+            aggregatedPerLocation
+                    .print()
+                    .name("NormalOutput")
+                    .uid("NormalOutput")
+                    .disableChaining();
+            aggregatedPerLocation
+                    .getSideOutput(lateDataTag)
+                    .printToErr()
+                    .name("LateDataSink")
+                    .uid("LateDataSink")
+                    .disableChaining();
+        } else {
+            aggregatedPerLocation
+                    .addSink(new DiscardingSink<>())
+                    .name("NormalOutput")
+                    .uid("NormalOutput")
+                    .disableChaining();
+            aggregatedPerLocation
+                    .getSideOutput(lateDataTag)
+                    .addSink(new DiscardingSink<>())
+                    .name("LateDataSink")
+                    .uid("LateDataSink")
+                    .disableChaining();
+        }
 
-		env.execute(TroubledStreamingJobSolution43.class.getSimpleName());
-	}
+        env.execute(TroubledStreamingJobSolution43.class.getSimpleName());
+    }
 
-	/**
-	 * Deserializes the JSON Kafka message.
-	 */
-	public static class MeasurementDeserializer extends
-			RichFlatMapFunction<FakeKafkaRecord, SimpleMeasurement> {
-		private static final long serialVersionUID = 4L;
+    /** Deserializes the JSON Kafka message. */
+    public static class MeasurementDeserializer
+            extends RichFlatMapFunction<FakeKafkaRecord, SimpleMeasurement> {
+        private static final long serialVersionUID = 4L;
 
-		private Counter numInvalidRecords;
-		private transient ObjectMapper instance;
+        private Counter numInvalidRecords;
+        private transient ObjectMapper instance;
 
-		@Override
-		public void open(final Configuration parameters) throws Exception {
-			super.open(parameters);
-			numInvalidRecords = getRuntimeContext().getMetricGroup().counter("numInvalidRecords");
-			instance = createObjectMapper();
-		}
+        @Override
+        public void open(final Configuration parameters) throws Exception {
+            super.open(parameters);
+            numInvalidRecords = getRuntimeContext().getMetricGroup().counter("numInvalidRecords");
+            instance = createObjectMapper();
+        }
 
-		@Override
-		public void flatMap(
-				final FakeKafkaRecord kafkaRecord,
-				final Collector<SimpleMeasurement> out) {
-			final SimpleMeasurement node;
-			try {
-				node = deserialize(kafkaRecord.getValue());
-			} catch (IOException e) {
-				numInvalidRecords.inc();
-				return;
-			}
-			out.collect(node);
-		}
+        @Override
+        public void flatMap(
+                final FakeKafkaRecord kafkaRecord, final Collector<SimpleMeasurement> out) {
+            final SimpleMeasurement node;
+            try {
+                node = deserialize(kafkaRecord.getValue());
+            } catch (IOException e) {
+                numInvalidRecords.inc();
+                return;
+            }
+            out.collect(node);
+        }
 
-		private SimpleMeasurement deserialize(final byte[] bytes) throws IOException {
-			return instance.readValue(bytes, SimpleMeasurement.class);
-		}
-	}
+        private SimpleMeasurement deserialize(final byte[] bytes) throws IOException {
+            return instance.readValue(bytes, SimpleMeasurement.class);
+        }
+    }
 
-	public static class MeasurementWindowAggregatingFunction
-			implements
-			AggregateFunction<SimpleMeasurement, WindowedMeasurements, WindowedMeasurements> {
-		private static final long serialVersionUID = -1083906142198231377L;
+    public static class MeasurementWindowAggregatingFunction
+            implements AggregateFunction<
+                    SimpleMeasurement, WindowedMeasurements, WindowedMeasurements> {
+        private static final long serialVersionUID = -1083906142198231377L;
 
-		@Override
-		public WindowedMeasurements createAccumulator() {
-			return new WindowedMeasurements();
-		}
+        @Override
+        public WindowedMeasurements createAccumulator() {
+            return new WindowedMeasurements();
+        }
 
-		@Override
-		public WindowedMeasurements add(
-				final SimpleMeasurement record,
-				final WindowedMeasurements aggregate) {
-			double result = record.getValue();
-			aggregate.addMeasurement(result);
-			return aggregate;
-		}
+        @Override
+        public WindowedMeasurements add(
+                final SimpleMeasurement record, final WindowedMeasurements aggregate) {
+            double result = record.getValue();
+            aggregate.addMeasurement(result);
+            return aggregate;
+        }
 
-		@Override
-		public WindowedMeasurements getResult(final WindowedMeasurements windowedMeasurements) {
-			return windowedMeasurements;
-		}
+        @Override
+        public WindowedMeasurements getResult(final WindowedMeasurements windowedMeasurements) {
+            return windowedMeasurements;
+        }
 
-		@Override
-		public WindowedMeasurements merge(
-				final WindowedMeasurements agg1,
-				final WindowedMeasurements agg2) {
-			agg2.setEventsPerWindow(agg1.getEventsPerWindow() + agg2.getEventsPerWindow());
-			agg2.setSumPerWindow(agg1.getSumPerWindow() + agg2.getSumPerWindow());
-			return agg2;
-		}
-	}
+        @Override
+        public WindowedMeasurements merge(
+                final WindowedMeasurements agg1, final WindowedMeasurements agg2) {
+            agg2.setEventsPerWindow(agg1.getEventsPerWindow() + agg2.getEventsPerWindow());
+            agg2.setSumPerWindow(agg1.getSumPerWindow() + agg2.getSumPerWindow());
+            return agg2;
+        }
+    }
 
-	public static class MeasurementWindowProcessFunction
-			extends
-			ProcessWindowFunction<WindowedMeasurements, WindowedMeasurements, String, TimeWindow> {
-		private static final long serialVersionUID = 1L;
+    public static class MeasurementWindowProcessFunction
+            extends ProcessWindowFunction<
+                    WindowedMeasurements, WindowedMeasurements, String, TimeWindow> {
+        private static final long serialVersionUID = 1L;
 
-		private static final int EVENT_TIME_LAG_WINDOW_SIZE = 10_000;
+        private static final int EVENT_TIME_LAG_WINDOW_SIZE = 10_000;
 
-		private transient DescriptiveStatisticsHistogram eventTimeLag;
+        private transient DescriptiveStatisticsHistogram eventTimeLag;
 
-		@Override
-		public void process(
-				final String location,
-				final Context context,
-				final Iterable<WindowedMeasurements> input,
-				final Collector<WindowedMeasurements> out) {
+        @Override
+        public void process(
+                final String location,
+                final Context context,
+                final Iterable<WindowedMeasurements> input,
+                final Collector<WindowedMeasurements> out) {
 
-			// Windows with pre-aggregation only forward the final to the WindowFunction
-			WindowedMeasurements aggregate = input.iterator().next();
+            // Windows with pre-aggregation only forward the final to the WindowFunction
+            WindowedMeasurements aggregate = input.iterator().next();
 
-			final TimeWindow window = context.window();
-			aggregate.setWindow(window);
-			aggregate.setLocation(location);
+            final TimeWindow window = context.window();
+            aggregate.setWindow(window);
+            aggregate.setLocation(location);
 
-			eventTimeLag.update(System.currentTimeMillis() - window.getEnd());
-			out.collect(aggregate);
-		}
+            eventTimeLag.update(System.currentTimeMillis() - window.getEnd());
+            out.collect(aggregate);
+        }
 
-		@Override
-		public void open(Configuration parameters) throws Exception {
-			super.open(parameters);
+        @Override
+        public void open(Configuration parameters) throws Exception {
+            super.open(parameters);
 
-			eventTimeLag = getRuntimeContext().getMetricGroup().histogram("eventTimeLag",
-					new DescriptiveStatisticsHistogram(EVENT_TIME_LAG_WINDOW_SIZE));
-		}
-	}
+            eventTimeLag =
+                    getRuntimeContext()
+                            .getMetricGroup()
+                            .histogram(
+                                    "eventTimeLag",
+                                    new DescriptiveStatisticsHistogram(EVENT_TIME_LAG_WINDOW_SIZE));
+        }
+    }
 
-	private static ObjectMapper createObjectMapper() {
-		ObjectMapper objectMapper = new ObjectMapper();
-		objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-		return objectMapper;
-	}
+    private static ObjectMapper createObjectMapper() {
+        ObjectMapper objectMapper = new ObjectMapper();
+        objectMapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+        return objectMapper;
+    }
 }

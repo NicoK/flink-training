@@ -19,26 +19,26 @@ import java.io.IOException;
 @DoNotChangeThis
 public class MeasurementDeserializer extends RichFlatMapFunction<FakeKafkaRecord, Measurement> {
 
-	private static final long serialVersionUID = -5805258552949837150L;
+    private static final long serialVersionUID = -5805258552949837150L;
 
-	private transient ObjectMapper mapper;
+    private transient ObjectMapper mapper;
 
-	@Override
-	public void open(final Configuration parameters) throws Exception {
-		super.open(parameters);
-		mapper = new ObjectMapper();
-		mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
-	}
+    @Override
+    public void open(final Configuration parameters) throws Exception {
+        super.open(parameters);
+        mapper = new ObjectMapper();
+        mapper.configure(DeserializationFeature.FAIL_ON_UNKNOWN_PROPERTIES, false);
+    }
 
-	private Measurement deserialize(final byte[] bytes) throws IOException {
-		return mapper.readValue(bytes, Measurement.class);
-	}
+    private Measurement deserialize(final byte[] bytes) throws IOException {
+        return mapper.readValue(bytes, Measurement.class);
+    }
 
-	@Override
-	public void flatMap(final FakeKafkaRecord kafkaRecord, final Collector<Measurement> out) {
-		try {
-			out.collect(deserialize(kafkaRecord.getValue()));
-		} catch (IOException ignored) {
-		}
-	}
+    @Override
+    public void flatMap(final FakeKafkaRecord kafkaRecord, final Collector<Measurement> out) {
+        try {
+            out.collect(deserialize(kafkaRecord.getValue()));
+        } catch (IOException ignored) {
+        }
+    }
 }
