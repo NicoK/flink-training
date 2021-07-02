@@ -1,6 +1,6 @@
 apply plugin: 'application'
 
-mainClassName = 'com.ververica.flink.training.exercises.TroubledStreamingJob'
+mainClassName = 'com.ververica.flink.training.exercises.ThroughputJob'
 
 dependencies {
     flinkShadowJar "com.fasterxml.jackson.core:jackson-databind:${jacksonVersion}"
