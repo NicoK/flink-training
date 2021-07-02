@@ -48,7 +48,7 @@ subprojects {
     }
 
     apply plugin: 'java'
-    // apply plugin: 'scala' // optional; uncomment if needed
+    // apply plugin: 'scala' // optional; remove if this causes problems
     apply plugin: 'com.github.johnrengelman.shadow'
     apply plugin: 'checkstyle'
     apply plugin: 'eclipse'
