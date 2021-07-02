@@ -1,3 +1,5 @@
+ext.solutionClassName = 'com.ververica.flink.training.solutions.CheckpointingJobSolution2'
+
 apply plugin: 'application'
 
 mainClassName = 'com.ververica.flink.training.exercises.TroubledStreamingJob'
