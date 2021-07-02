@@ -4,10 +4,10 @@ import org.apache.flink.api.common.restartstrategy.RestartStrategies;
 import org.apache.flink.api.common.time.Time;
 import org.apache.flink.api.java.utils.ParameterTool;
 import org.apache.flink.configuration.Configuration;
-import org.apache.flink.contrib.streaming.state.RocksDBStateBackend;
+import org.apache.flink.contrib.streaming.state.EmbeddedRocksDBStateBackend;
 import org.apache.flink.core.fs.Path;
 import org.apache.flink.runtime.state.StateBackend;
-import org.apache.flink.runtime.state.filesystem.FsStateBackend;
+import org.apache.flink.runtime.state.hashmap.HashMapStateBackend;
 import org.apache.flink.streaming.api.environment.StreamExecutionEnvironment;
 import org.apache.flink.util.FileUtils;
 
@@ -57,12 +57,13 @@ public class EnvironmentUtils {
 				checkpointPath =
 						Path.fromLocalFile(Files.createTempDirectory("checkpoints").toFile());
 			}
+			env.getCheckpointConfig().setCheckpointStorage(checkpointPath);
 
 			final StateBackend stateBackend;
 			if (parameters.has("useRocksDB")) {
-				stateBackend = new RocksDBStateBackend(checkpointPath.toUri());
+				stateBackend = new EmbeddedRocksDBStateBackend();
 			} else {
-				stateBackend = new FsStateBackend(checkpointPath);
+				stateBackend = new HashMapStateBackend();
 			}
 			env.setStateBackend(stateBackend);
 
