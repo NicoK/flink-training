@@ -1,6 +1,7 @@
 plugins {
     id "com.github.davidmc24.gradle.plugin.avro" version "1.2.0"
 }
+apply plugin: 'application'
 
 mainClassName = 'com.ververica.flink.training.exercises.TroubledStreamingJob'
 
