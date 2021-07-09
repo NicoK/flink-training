@@ -3,7 +3,7 @@
 ## Introduction
 
 This lab provides the basis of the hands-on part of the "Introduction to Apache Flink Tuning & Troubleshooting"
-training by Ververica. Please follow the [Setup Instructions](../../README.md#setup-your-development-environment) first
+training by Ververica. Please follow the [Setup Instructions](../../README.md#set-up-your-development-environment) first
 and then continue reading here.
 
 ### Infrastructure
